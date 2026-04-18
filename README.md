@@ -6,7 +6,7 @@ This Zenodo reproducibility package accompanies a research study evaluating a CI
 The package includes the dataset and scripts used to evaluate key delivery outcomes (DORA metrics and test coverage) before and after pipeline adoption.
 
 ## Package Contents
-- `dora_metrics.csv`  
+- `weekly_dora_metrics.csv`  
   Weekly project metrics used in the paper (Table 4 fields):
   `Week`, `Deployment_Frequency`, `Lead_Time_Days`, `Failure_Rate_Percentage`,
   `MTTR_Hours`, `PHP_Coverage`, `React_Coverage`.
@@ -33,10 +33,10 @@ The package includes the dataset and scripts used to evaluate key delivery outco
    - Optional t-test results for each metric
 
 ## Project Repository
-- GitHub: Not publicly available at submission time.
+- GitHub:https://github.com/HTUNLINNKHANT/CI-CD-Pipeline-Evaluation-in-a-Laravel-React-Application.git
 
 ## Zenodo DOI
-- DOI: `10.5281/zenodo.XXXXXXX`
+- DOI: `10.5281/zenodo.19641143`
 
 ## License
 This package is licensed under **CC BY 4.0**.
