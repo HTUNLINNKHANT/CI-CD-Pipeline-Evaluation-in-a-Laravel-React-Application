@@ -1,0 +1,161 @@
+name: Laravel React CI/CD
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+env:
+  PHP_VERSION: "8.3"
+  NODE_VERSION: "20"
+  LARAVEL_DIR: "."
+  FRONTEND_DIR: "frontend"
+
+jobs:
+  backend-tests:
+    name: Backend Tests (Laravel)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, dom, fileinfo, pdo, pdo_mysql
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.composer/cache/files
+            ${{ env.LARAVEL_DIR }}/vendor
+          key: ${{ runner.os }}-php-${{ env.PHP_VERSION }}-${{ hashFiles(format('{0}/composer.lock', env.LARAVEL_DIR)) }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ env.PHP_VERSION }}-
+
+      - name: Install Composer dependencies
+        working-directory: ${{ env.LARAVEL_DIR }}
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare Laravel environment
+        working-directory: ${{ env.LARAVEL_DIR }}
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run PHPUnit tests
+        working-directory: ${{ env.LARAVEL_DIR }}
+        run: php artisan test
+
+  frontend-tests:
+    name: Frontend Tests (React)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.FRONTEND_DIR }}/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: npm ci
+
+      - name: Run frontend unit tests
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: npm test -- --watch=false
+
+      - name: Build React application
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: npm run build
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.FRONTEND_DIR }}/package-lock.json
+
+      - name: Install production PHP dependencies
+        working-directory: ${{ env.LARAVEL_DIR }}
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Install frontend dependencies
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: npm ci
+
+      - name: Build frontend assets
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: |
+            ${{ env.LARAVEL_DIR }}
+            !${{ env.LARAVEL_DIR }}/node_modules
+            !${{ env.LARAVEL_DIR }}/tests
+            !${{ env.LARAVEL_DIR }}/storage/logs
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: release
+
+      - name: Deploy artifact to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: "release/*"
+          target: ${{ secrets.PROD_DEPLOY_PATH }}
+
+      - name: Run remote release commands
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd ${{ secrets.PROD_DEPLOY_PATH }}
+            php artisan migrate --force
+            php artisan config:cache
+            php artisan route:cache
